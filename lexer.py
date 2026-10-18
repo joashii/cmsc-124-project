@@ -8,6 +8,10 @@ TOKEN_PATTERN = [
     ('TROOF Literal', r'^(?:WIN|FAIL)\b'),
     ('TYPE Literal', r'^(?:NUMBR|NUMBAR|YARN|TROOF|BUKKIT|NOOB)\b'),
 
+    # comments
+    ('Single Comment', r'^BTW\b[^\n]*(?:\r?\n|$)'),
+    ('Multi Comment', r'^OBTW\s[\s\S]*?\sTLDR(?:\r?\n|$)'),
+
     # keywords
     ('HAI', r'^HAI\b'),
     ('KTHXBYE', r'^KTHXBYE\b'),
@@ -67,22 +71,31 @@ TOKEN_PATTERN = [
 ]
 
 def lexer(source):
-    source = clean_code(source)
+    lexemes = [] # to store the tokens
+    remaining = source # loop through the source code string
 
-def clean_code(source):
-    # remove comments
-    mc_pattern = re.compile(r'^OBTW\s[\s\S]*?\sTLDR(?:\r?\n|$)', re.MULTILINE)
-    sc_pattern = re.compile(r'BTW [^\n]*(?:\r?\n|$)')
+    while remaining:
+        remaining = remaining.lstrip(' \t\r\n,') # remove leading whitespace and line delimiter
 
-    source = sc_pattern.sub('\n', source)
-    source = mc_pattern.sub('', source)
+        for token, pattern in TOKEN_PATTERN: # iterate through token_pattern
+            match = re.match(pattern, remaining)
 
-    # remove multiple newline
-    source = re.sub('\n+', '\n', source).strip()
+            if match:
+                remaining = remaining[match.end():] # remove the matched substring
+                if token == "Single Comment" or token == "Multi Comment": break # disregard comments
 
-    return source
+                token_lex = match.group() # lexeme = matched string
+                token_type = token # corresponding type
+
+                lexemes.append((token_lex, token_type)) # append the lexeme
+                break
+
+    return lexemes
 
 with open("sample.lol", "r") as file:
     code = file.read()
 
-lexer(code)
+lexemes = lexer(code)
+
+for token_lex, token_type in lexemes:
+    print(f"{token_lex:50}\t{token_type:<10}")
