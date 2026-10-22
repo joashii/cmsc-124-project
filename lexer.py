@@ -92,6 +92,9 @@ def lexer(source):
     lexemes = []  # to store the tokens: (lexeme, classification, line_number)
     remaining = source  # loop through the source code string
     line = 1  # the line we are currently on
+    variables = set() # storage for variables
+    functions = set() # storage for functions
+    loops = set() # storage for loops
 
     while remaining:
         remaining = remaining.lstrip(' \t\r')  # remove leading spaces and tabs (NOT newlines or commas)
@@ -131,7 +134,48 @@ def lexer(source):
                 if token == "Identifier" and token_lex in ("OBTW", "TLDR"):
                     raise LexError(f"Line {line}: {token_lex} is not part of a complete OBTW ... TLDR comment")
 
-                lexemes.append((token_lex, token, line))  # append the lexeme
+                # identify if name is a variable, function, or loop
+                if token == "Identifier":
+                    previous_token = lexemes[-1][0] if lexemes else ""
+
+                    # variable declaration
+                    if previous_token == "I HAS A":
+                        variables.add(token_lex)
+                        token = "Variable Identifier"
+
+                    # function declaration
+                    elif previous_token == "HOW IZ I":
+                        functions.add(token_lex)
+                        token = "Function Identifier"
+
+                    # loop declaration
+                    elif previous_token == "IM IN YR":
+                        loops.add(token_lex)
+                        token = "Loop Identifier"
+
+                    # function call (the function may be defined later in the file)
+                    elif previous_token == "I IZ":
+                        functions.add(token_lex)
+                        token = "Function Identifier"
+
+                    # a name after YR is a function parameter, an argument, or the UPPIN/NERFIN variable
+                    elif previous_token == "YR":
+                        variables.add(token_lex)
+                        token = "Variable Identifier"
+
+                    # IT is the implicit variable, it is never declared
+                    elif token_lex == "IT":
+                        token = "Variable Identifier"
+
+                    # classifying of declarations
+                    elif token_lex in variables:
+                        token = "Variable Identifier"
+                    elif token_lex in functions:
+                        token = "Function Identifier"
+                    elif token_lex in loops:
+                        token = "Loop Identifier"
+
+                lexemes.append((token_lex, token, line)) # save token
                 break
         else:
             # no pattern matched (the old code looped forever here), so report the error
