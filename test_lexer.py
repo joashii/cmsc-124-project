@@ -48,7 +48,7 @@ def test_keyword_inside_a_longer_word_is_an_identifier():
 
 def test_single_comment_is_ignored_but_line_break_stays():
     assert classes("I HAS A x BTW note\nVISIBLE x") == [
-        "Variable Declaration", "Identifier", "Line Break", "Output Keyword", "Identifier"]
+        "Variable Declaration", "Variable Identifier", "Line Break", "Output Keyword", "Variable Identifier"]
 
 
 def test_multi_line_comment_is_ignored():
@@ -103,6 +103,27 @@ def test_sample_file():
     lexemes = [t[0] for t in tokens]
     assert "HAI" in lexemes
     assert "KTHXBYE" in lexemes
+
+
+def test_identifier_types():
+    code = "I HAS A x\nHOW IZ I f YR a AN YR b\nFOUND YR SUM OF a AN b\nIF U SAY SO\nIM IN YR lp UPPIN YR x\nIM OUTTA YR lp"
+    found = {t[0]: t[1] for t in lexer(code) if "Identifier" in t[1]}
+    assert found["x"] == "Variable Identifier"
+    assert found["f"] == "Function Identifier"
+    assert found["a"] == "Variable Identifier"   # function parameter
+    assert found["lp"] == "Loop Identifier"
+
+
+def test_call_before_definition_and_IT():
+    found = {t[0]: t[1] for t in lexer("I IZ later MKAY\nVISIBLE IT\nHOW IZ I later\nIF U SAY SO") if "Identifier" in t[1]}
+    assert found["later"] == "Function Identifier"
+    assert found["IT"] == "Variable Identifier"
+
+
+def test_sample_has_no_unclassified_identifiers():
+    with open("sample.lol", encoding="utf-8") as file:
+        tokens = lexer(file.read())
+    assert [t for t in tokens if t[1] == "Identifier"] == []
 
 
 # Run every test function above and report the result.

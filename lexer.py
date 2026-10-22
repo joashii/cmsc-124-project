@@ -153,6 +153,20 @@ def lexer(source):
                         loops.add(token_lex)
                         token = "Loop Identifier"
 
+                    # function call (the function may be defined later in the file)
+                    elif previous_token == "I IZ":
+                        functions.add(token_lex)
+                        token = "Function Identifier"
+
+                    # a name after YR is a function parameter, an argument, or the UPPIN/NERFIN variable
+                    elif previous_token == "YR":
+                        variables.add(token_lex)
+                        token = "Variable Identifier"
+
+                    # IT is the implicit variable, it is never declared
+                    elif token_lex == "IT":
+                        token = "Variable Identifier"
+
                     # classifying of declarations
                     elif token_lex in variables:
                         token = "Variable Identifier"
