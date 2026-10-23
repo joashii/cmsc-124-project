@@ -12,7 +12,7 @@ class LexError(Exception):
 TOKEN_PATTERN = [
     # literals
     # a string is matched whole here and split into 3 tokens later in lexer()
-    ('YARN Literal', r'^"[^"\n\a]*"'),
+    ('YARN Literal', r'^"(?:[^"\n\t:]|:[)>O":])*"'),
     # numbers must not be followed by a letter or digit (12abc is an error)
     ('NUMBAR Literal', r'^-?[0-9]+\.[0-9]+(?![A-Za-z0-9_])'),
     ('NUMBR Literal', r'^-?[0-9]+(?![A-Za-z0-9_])'),
@@ -125,8 +125,24 @@ def lexer(source):
 
                 # a string becomes 3 tokens: opening quote, the text, closing quote
                 if token == "YARN Literal":
+
+                    # convert the escape characters to actual charactters
+                    escape_dict = { ")": "\\n", ">": "\\t", "O": "\\a", '"': '"', ":": ":"}
+                    raw_text = token_lex[1:-1]
+                    text = ""
+                    i = 0
+
+                    while i < len(raw_text):
+                        if raw_text[i] == ":":
+                            escape = raw_text[i + 1]
+                            text += escape_dict[escape]
+                            i += 2
+                        else:
+                            text += raw_text[i]
+                            i += 1
+
                     lexemes.append(('"', "String Delimiter", line))
-                    lexemes.append((token_lex[1:-1], token, line))  # the text can be empty
+                    lexemes.append((text, token, line))  # the text can be empty
                     lexemes.append(('"', "String Delimiter", line))
                     break
 

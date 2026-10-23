@@ -60,7 +60,7 @@ BUHBYE
 
 BTW ---------- output ----------
 VISIBLE "=== output ==="
-VISIBLE "name: " + name + " | ratio: " + ratio + " | neg: " + neg
+VISIBLE "name:: " + name + " | ratio:: " + ratio + " | neg:: " + neg
 VISIBLE "no newline after this"!
 VISIBLE " <- same line"
 VISIBLE "a"!, VISIBLE "b"!, VISIBLE "c"      BTW "!" and soft breaks together
@@ -80,7 +80,7 @@ result R BIGGR OF total AN ratio
 result R SMALLR OF total AN ratio
 result R SUM OF PRODUKT OF 2 AN 3 AN QUOSHUNT OF 8 AN 2      BTW (2*3)+(8/2)
 result R SUM OF SUM OF SUM OF 3 AN 4 AN 2 AN 1               BTW ((3+4)+2)+1
-VISIBLE "result: " + result
+VISIBLE "result:: " + result
 
 BTW ---------- assignment ----------
 copy R 5                                     BTW from a literal
@@ -120,9 +120,9 @@ ratio IS NOW A NUMBAR
 empty IS NOW A TROOF
 
 BTW ---------- input ----------
-VISIBLE "Type something: "!
+VISIBLE "Type something:: "!
 GIMMEH text
-VISIBLE "You typed: " + text
+VISIBLE "You typed:: " + text
 
 BTW ---------- if / else-if / else ----------
 BOTH SAEM total AN 10
@@ -134,7 +134,7 @@ O RLY?
   MEBBE DIFFRINT total AN 30
     VISIBLE "total is not thirty"
   NO WAI
-    VISIBLE "total is something else"
+    VISIBLE "total is something else:)not this"
 OIC
 
 BTW if-else nested inside if-else
@@ -176,12 +176,12 @@ OIC
 BTW ---------- loops ----------
 i R 2
 IM IN YR counter UPPIN YR i TIL BOTH SAEM i AN 5           BTW TIL: repeats while the test is FAIL
-  VISIBLE "up: " + i
+  VISIBLE "up:: " + i
 IM OUTTA YR counter
 
 i R 3
 IM IN YR countdown NERFIN YR i WILE DIFFRINT i AN 0        BTW WILE: repeats while the test is WIN
-  VISIBLE "down: " + i
+  VISIBLE "down:: " + i
 IM OUTTA YR countdown
 
 i R 0
@@ -225,7 +225,7 @@ IM IN YR walker UPPIN YR i TIL BOTH SAEM i AN 4
       OIC
       GTFO
     OMGWTF
-      VISIBLE "other: " + i
+      VISIBLE "other:: " + i
   OIC
 IM OUTTA YR walker
 
