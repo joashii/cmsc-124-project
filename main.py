@@ -49,7 +49,7 @@ with ui.column().classes('w-full h-screen p-4 gap-4 overflow-hidden'):
         # Column 3: Changed to w-1/3
         with ui.column().classes('w-1/5 border-2 border-slate-300 h-full rounded bg-gray-50 overflow-hidden'):
             with ui.row().classes('w-full bg-slate-800 text-white p-2 items-center justify-between rounded-t'):
-                ui.label('Tokens').classes('font-bold')
+                ui.label('Symbol Table').classes('font-bold')
                 ui.icon('list')
 
             with ui.column().classes('w-full flex-grow overflow-y-auto p-2'):
