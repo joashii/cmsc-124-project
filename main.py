@@ -2,7 +2,7 @@ from nicegui import ui
 from lexer import lexer, without_line_breaks, LexError
 
 
-# 1. Define the upload handler
+# Read the uploaded .txt/.lol file and place its contents into the editor
 async def handle_upload(e):
     name = e.file.name
     if not name.endswith(('.txt', '.lol')):
@@ -16,7 +16,7 @@ async def handle_upload(e):
         ui.notify(f'Error reading file: {ex}', type='negative')
 
 
-# Run the lexer on whatever is currently in the editor
+# Run the lexer on the current editor contents and populate the lexeme table
 def run_lexer():
     try:
         lexemes = without_line_breaks(lexer(editor.value))
@@ -34,15 +34,16 @@ def run_lexer():
     ui.notify(f'{len(lexemes)} lexemes found', type='positive')
 
 
-# 5. Create the hidden uploader
+# Hidden uploader used only to open the file picker
 uploader = ui.upload(auto_upload=True, on_upload=handle_upload).classes('hidden')
-
 uploader.ignores_events_when_hidden = False  # Required to trigger pickFiles
 
-with ui.header().classes('items-center justify-center'):
+with ui.header().classes('items-center justify-center '):
     ui.label('LOLCode Interpreter').classes('text-xl font-bold')
 
 with ui.column().classes('w-full h-screen p-4 gap-4 overflow-hidden'):
+
+    # Row 1: Code Breakdown Section
     with ui.row().classes('w-full gap-4 flex-nowrap h-64'):
         # Column 1: Code Editor
         with ui.column().classes('w-2/5 border-2 border-slate-300 h-full rounded bg-gray-50 overflow-hidden'):
@@ -61,7 +62,7 @@ with ui.column().classes('w-full h-screen p-4 gap-4 overflow-hidden'):
                 # The editor is safely initialized here
                 editor = ui.codemirror('HAI 1.2\nVISIBLE "Hello"\nKTHXBYE', language='Text').classes('w-full h-full')
 
-        # Column 2: Changed to w-1/3
+        # Column 2: Lexemes
         with ui.column().classes('w-2/5 border-2 border-slate-300 h-full rounded bg-gray-50 overflow-hidden'):
             with ui.row().classes('w-full bg-slate-800 text-white p-2 items-center justify-between rounded-t'):
                 ui.label('Lexemes').classes('font-bold')
@@ -77,7 +78,7 @@ with ui.column().classes('w-full h-screen p-4 gap-4 overflow-hidden'):
                     row_key='id',
                 ).props('dense flat').classes('w-full')
 
-        # Column 3: Changed to w-1/3
+        # Column 3: Symbol Table
         with ui.column().classes('w-1/5 border-2 border-slate-300 h-full rounded bg-gray-50 overflow-hidden'):
             with ui.row().classes('w-full bg-slate-800 text-white p-2 items-center justify-between rounded-t'):
                 ui.label('Symbol Table').classes('font-bold')
@@ -87,9 +88,8 @@ with ui.column().classes('w-full h-screen p-4 gap-4 overflow-hidden'):
                 for i in range(50):
                     ui.label(f'Token {i}')
 
-    # --- ROW 2: Console ---
+    # Row 2: Console Section
     with ui.row().classes('w-full flex-grow gap-4 flex-nowrap'):
-        # I assume you want this to be the console based on your PDF
         with ui.column().classes('w-full border-2 border-slate-300 h-full rounded bg-gray-50 overflow-hidden'):
             with ui.row().classes('w-full bg-slate-800 text-white p-2 items-center justify-between rounded-t'):
                 ui.label('Console').classes('font-bold')
