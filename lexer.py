@@ -1,27 +1,20 @@
 import re
 
-
 # Error raised when the code has something the lexer does not understand.
 class LexError(Exception):
     pass
 
-
-# Each entry is (classification, regex). The first pattern that matches wins,
-# so the ORDER matters (literals first, identifiers last).
-# \b means "end of word", so WINNER is an identifier and not the keyword WIN.
+# first pattern matched wins so ORDER matters (literals, keywords, identifiers)
 TOKEN_PATTERN = [
     # literals
-    # a string is matched whole here and split into 3 tokens later in lexer()
     ('YARN Literal', r'^"(?:[^"\n\t:]|:[)>O":])*"'),
-    # numbers must not be followed by a letter or digit (12abc is an error)
     ('NUMBAR Literal', r'^-?[0-9]+\.[0-9]+(?![A-Za-z0-9_])'),
     ('NUMBR Literal', r'^-?[0-9]+(?![A-Za-z0-9_])'),
     ('TROOF Literal', r'^(?:WIN|FAIL)\b'),
     ('TYPE Literal', r'^(?:NUMBR|NUMBAR|YARN|TROOF|BUKKIT|NOOB)\b'),
 
-    # comments (the newline after a comment is NOT part of it, it becomes a Line Break)
+    # comments
     ('Single Comment', r'^BTW\b[^\n]*'),
-    # OBTW ... TLDR, where TLDR must be alone on its own line
     ('Multi Comment', r'^OBTW\b[\s\S]*?\n[ \t]*TLDR[ \t]*(?=\r?\n|$)'),
 
     # keywords
@@ -78,113 +71,69 @@ TOKEN_PATTERN = [
     ('Output Separator', r'^\+'),
     ('Newline Suppressor', r'^!'),
 
-    # line breaks (the parser needs them to know where a statement ends)
+    # line breaks
     ('Line Break', r'^\n'),
     ('Soft Line Break', r'^,'),
 
     # identifiers
-    # TODO: decide if it is a variable, function or loop identifier
     ('Identifier', r'^[A-Za-z][A-Za-z0-9_]*'),
 ]
 
+ESCAPE_DICT = {")": "\n", ">": "\t", "O": "\a", '"': '"', ":": ":"}
 
 def lexer(source):
-    lexemes = []  # to store the tokens: (lexeme, classification, line_number)
-    remaining = source  # loop through the source code string
-    line = 1  # the line we are currently on
-    variables = set() # storage for variables
-    functions = set() # storage for functions
-    loops = set() # storage for loops
+    lexemes = []
+    remaining = source
+    line = 1
+    variables, functions, loops = set(), set(), set()
 
     while remaining:
-        remaining = remaining.lstrip(' \t\r')  # remove leading spaces and tabs (NOT newlines or commas)
-        if not remaining:
-            break  # only whitespace was left
+        remaining = remaining.lstrip(' \t\r')
+        if not remaining: break
 
-        for token, pattern in TOKEN_PATTERN:  # iterate through token_pattern
+        for token, pattern in TOKEN_PATTERN:
             match = re.match(pattern, remaining)
-
             if match:
-                token_lex = match.group()  # lexeme = matched string
-                remaining = remaining[match.end():]  # remove the matched substring
+                token_lex = match.group()
+                remaining = remaining[match.end():]
 
-                # comments are disregarded, but we still count the lines inside them
-                if token == "Single Comment" or token == "Multi Comment":
-                    # OBTW must be alone on its line, so nothing may come before it
+                # comments
+                if token in ("Single Comment", "Multi Comment"):
                     if token == "Multi Comment" and lexemes and lexemes[-1][1] != "Line Break":
                         raise LexError(f"Line {line}: OBTW must be on its own line")
                     line += token_lex.count("\n")
                     break
 
-                # a newline ends the line (but never keep two Line Breaks in a row, or one at the start)
+                # line breaks
                 if token == "Line Break":
                     if lexemes and lexemes[-1][1] != "Line Break":
                         lexemes.append(("\\n", token, line))
                     line += 1
                     break
 
-                # a string becomes 3 tokens: opening quote, the text, closing quote
+                # yarn literals
                 if token == "YARN Literal":
-
-                    # convert the escape characters to actual charactters
-                    escape_dict = { ")": "\\n", ">": "\\t", "O": "\\a", '"': '"', ":": ":"}
-                    raw_text = token_lex[1:-1]
-                    text = ""
-                    i = 0
-
-                    while i < len(raw_text):
-                        if raw_text[i] == ":":
-                            escape = raw_text[i + 1]
-                            text += escape_dict[escape]
-                            i += 2
-                        else:
-                            text += raw_text[i]
-                            i += 1
+                    text = re.sub(r':([)>O":])', lambda m: ESCAPE_DICT[m.group(1)], token_lex[1:-1])
 
                     lexemes.append(('"', "String Delimiter", line))
-                    lexemes.append((text, token, line))  # the text can be empty
+                    lexemes.append((text, token, line))
                     lexemes.append(('"', "String Delimiter", line))
                     break
 
-                # an OBTW or TLDR that is not part of a full comment looks like an identifier
-                if token == "Identifier" and token_lex in ("OBTW", "TLDR"):
-                    raise LexError(f"Line {line}: {token_lex} is not part of a complete OBTW ... TLDR comment")
-
-                # identify if name is a variable, function, or loop
+                # identifiers
                 if token == "Identifier":
-                    previous_token = lexemes[-1][0] if lexemes else ""
+                    if token_lex in ("OBTW", "TLDR"):
+                        raise LexError(f"Line {line}: '{token_lex}' is not part of a complete comment block")
 
-                    # variable declaration
-                    if previous_token == "I HAS A":
+                    prev_token = lexemes[-1][0] if lexemes else ""
+                    if prev_token in ("I HAS A", "YR"):
                         variables.add(token_lex)
-                        token = "Variable Identifier"
-
-                    # function declaration
-                    elif previous_token == "HOW IZ I":
+                    elif prev_token in ("HOW IZ I", "I IZ"):
                         functions.add(token_lex)
-                        token = "Function Identifier"
-
-                    # loop declaration
-                    elif previous_token == "IM IN YR":
+                    elif prev_token == "IM IN YR":
                         loops.add(token_lex)
-                        token = "Loop Identifier"
 
-                    # function call (the function may be defined later in the file)
-                    elif previous_token == "I IZ":
-                        functions.add(token_lex)
-                        token = "Function Identifier"
-
-                    # a name after YR is a function parameter, an argument, or the UPPIN/NERFIN variable
-                    elif previous_token == "YR":
-                        variables.add(token_lex)
-                        token = "Variable Identifier"
-
-                    # IT is the implicit variable, it is never declared
-                    elif token_lex == "IT":
-                        token = "Variable Identifier"
-
-                    # classifying of declarations
-                    elif token_lex in variables:
+                    if token_lex == "IT" or token_lex in variables:
                         token = "Variable Identifier"
                     elif token_lex in functions:
                         token = "Function Identifier"
@@ -194,20 +143,34 @@ def lexer(source):
                 lexemes.append((token_lex, token, line)) # save token
                 break
         else:
-            # no pattern matched (the old code looped forever here), so report the error
+            # string error
             if remaining[0] == '"':
-                raise LexError(f"Line {line}: string is missing its closing quote")
+                current_line = remaining.split('\n', 1)[0]
+                err_escape = re.search(r':([^)>O":])', current_line)
+                
+                if '\t' in current_line:
+                    message = "a string cannot contain a raw tab"
+                elif err_escape:
+                    message = f"invalid escape ':{err_escape.group(1)}'"
+                else:
+                    message = "string is missing its closing quote"
+
+                raise LexError(f"Line {line}: {message}")
+
+            # identifier formatting error
+            bad_format = re.match(r'-?[0-9]+(?:\.[0-9]+)?[A-Za-z0-9_]+', remaining)
+            if bad_format:
+                raise LexError(f"Line {line}: invalid identifier '{bad_format.group()}'")
+            
+            # general error
             raise LexError(f"Line {line}: unknown character '{remaining[0]}'")
 
     return lexemes
-
 
 def without_line_breaks(lexemes):
     """Tokens for the GUI table. The parser needs the line breaks, people do not."""
     return [t for t in lexemes if t[1] not in ("Line Break", "Soft Line Break")]
 
-
-# This only runs with "python lexer.py sample.lol", not when another file imports lexer.
 if __name__ == "__main__":
     import sys
 
