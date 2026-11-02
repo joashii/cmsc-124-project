@@ -1,6 +1,8 @@
+import asyncio
 from nicegui import ui
-from lexer import lexer, without_line_breaks, LexError
+from lexer import lexer, LexError
 
+lexemes = []
 
 # Read the uploaded .txt/.lol file and place its contents into the editor
 async def handle_upload(e):
@@ -17,21 +19,20 @@ async def handle_upload(e):
 
 
 # Run the lexer on the current editor contents and populate the lexeme table
-def run_lexer():
-    try:
-        lexemes = without_line_breaks(lexer(editor.value))
-    except LexError as err:
-        lexeme_table.rows = []
-        lexeme_table.update()
-        ui.notify(f'Lexical error: {err}', type='negative')
-        return
-
-    lexeme_table.rows = [
-        {'id': i, 'line': line, 'lexeme': lex, 'classification': kind}
-        for i, (lex, kind, line) in enumerate(lexemes)
-    ]
+# edit
+async def run_lexer():
+    lexemes.clear()
+    lexeme_table.rows.clear()
     lexeme_table.update()
-    ui.notify(f'{len(lexemes)} lexemes found', type='positive')
+
+    try:
+        for row_id, (lex, kind, line) in enumerate(lexer(editor.value, lexemes)):
+            lexeme_table.add_row({ 'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind })
+            await asyncio.sleep(0.1) # for visualization of identifying lexeme one at a time
+
+        ui.notify(f'{len(lexeme_table.rows)} lexemes found', type='positive')
+    except LexError as err:
+        ui.notify(f'Lexical error: {err}', type='negative')
 
 
 # Hidden uploader used only to open the file picker

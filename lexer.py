@@ -71,9 +71,8 @@ TOKEN_PATTERN = [
     ('Output Separator', r'^\+'),
     ('Newline Suppressor', r'^!'),
 
-    # line breaks
-    ('Line Break', r'^\n'),
-    ('Soft Line Break', r'^,'),
+    # line breaks & soft line break
+    ('Line Break', r'^[\n,]'),
 
     # identifiers
     ('Identifier', r'^[A-Za-z][A-Za-z0-9_]*'),
@@ -81,8 +80,7 @@ TOKEN_PATTERN = [
 
 ESCAPE_DICT = {")": "\n", ">": "\t", "O": "\a", '"': '"', ":": ":"}
 
-def lexer(source):
-    lexemes = []
+def lexer(source, lexemes):
     remaining = source
     line = 1
     variables, functions, loops = set(), set(), set()
@@ -104,20 +102,24 @@ def lexer(source):
                     line += token_lex.count("\n")
                     break
 
-                # line breaks
+                # line breaks (incl soft line breaks)
                 if token == "Line Break":
                     if lexemes and lexemes[-1][1] != "Line Break":
                         lexemes.append(("\\n", token, line))
-                    line += 1
+                    if token_lex == "\n":
+                        line += 1
                     break
 
                 # yarn literals
                 if token == "YARN Literal":
                     text = re.sub(r':([)>O":])', lambda m: ESCAPE_DICT[m.group(1)], token_lex[1:-1])
-
-                    lexemes.append(('"', "String Delimiter", line))
-                    lexemes.append((text, token, line))
-                    lexemes.append(('"', "String Delimiter", line))
+                    for tok in [
+                        ('"', "String Delimiter", line),
+                        (text, token, line),
+                        ('"', "String Delimiter", line),
+                    ]:
+                        lexemes.append(tok)
+                        yield tok
                     break
 
                 # identifiers
@@ -140,14 +142,16 @@ def lexer(source):
                     elif token_lex in loops:
                         token = "Loop Identifier"
 
-                lexemes.append((token_lex, token, line)) # save token
+                tok = (token_lex, token, line)
+                lexemes.append(tok)
+                yield tok
                 break
         else:
             # string error
             if remaining[0] == '"':
                 current_line = remaining.split('\n', 1)[0]
                 err_escape = re.search(r':([^)>O":])', current_line)
-                
+
                 if '\t' in current_line:
                     message = "a string cannot contain a raw tab"
                 elif err_escape:
@@ -165,12 +169,6 @@ def lexer(source):
             # general error
             raise LexError(f"Line {line}: unknown character '{remaining[0]}'")
 
-    return lexemes
-
-def without_line_breaks(lexemes):
-    """Tokens for the GUI table. The parser needs the line breaks, people do not."""
-    return [t for t in lexemes if t[1] not in ("Line Break", "Soft Line Break")]
-
 if __name__ == "__main__":
     import sys
 
@@ -179,7 +177,7 @@ if __name__ == "__main__":
         code = file.read()
 
     try:
-        for token_lex, token_type, line in without_line_breaks(lexer(code)):
+        for token_lex, token_type, line in lexer(code):
             print(f"{line:>4}  {token_lex:50}\t{token_type:<10}")
     except LexError as error:
         print("Lexical error:", error)
