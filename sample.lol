@@ -49,7 +49,7 @@ WAZZUP
   I HAS A copy ITZ total                 BTW initialised from another variable
   I HAS A calc ITZ SUM OF 5 AN 4         BTW initialised from an expression
   I HAS A joined ITZ SMOOSH "a" AN "b" AN "c"
-  I HAS A tricky ITZ "I HAS A BTW OBTW TLDR, all inside a YARN"
+  I HAS A tricky ITZ "I HAS A BTW OBT/W TLDR, all inside a YARN"
   OBTW
     A multi-line comment is allowed inside the WAZZUP block too.
   TLDR
