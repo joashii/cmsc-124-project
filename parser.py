@@ -1,250 +1,510 @@
-import sys
+"""Recursive-descent syntax parser for the LOLCODE project.
+
+The parser uses a token list and a shared cursor. Each parse_* function
+handles one part of the grammar and returns a simple tuple-based parse tree.
+"""
+
 from lexer import lexer, LexError
 
-tokens, pos, furthest, expected = [], 0, 0, set()
 
-# main parser function
+class ParseError(Exception):
+    pass
 
-def parse(lexemes):
-    global tokens, pos, furthest, expected
-    last_line = lexemes[-1][2] if lexemes else 1
-    tokens = [t for idx, t in enumerate(lexemes) if idx > 0 or t[1] != "Line Break"]
-    tokens.append(("EOF", "EOF", last_line))
-    pos, furthest, expected = 0, 0, set()
 
-    tree = program()
-    if tree and tokens[pos][1] == "EOF":
-        return tree
+tokens = []
+current = 0
+symbols = None  # the SymbolTable from symbol_table.py (optional)
 
-    lex, kind, line = tokens[furthest]
-    if kind == "Identifier":
-        raise SyntaxError(f"Line {line}: Undeclared identifier '{lex}'")
-    raise SyntaxError(f"Line {line}: Unexpected '{lex}' ({kind}); expected {', '.join(sorted(expected))}")
+NAME_TYPES = (
+    "Variable Identifier", "Function Identifier",
+    "Loop Identifier", "Identifier"
+)
 
-# print resulting tree
+ARITHMETIC = (
+    "SUM OF", "DIFF OF", "PRODUKT OF", "QUOSHUNT OF",
+    "MOD OF", "BIGGR OF", "SMALLR OF"
+)
+BOOLEAN = ("BOTH OF", "EITHER OF", "WON OF")
+COMPARISON = ("BOTH SAEM", "DIFFRINT")
+LIST_OPERATIONS = ("SMOOSH", "ALL OF", "ANY OF")
 
-def print_tree(node, prefix="", last=True):
-    label, data = node
-    branch = "└── " if last else "├── "
-    if isinstance(data, tuple):
-        print(f"{prefix}{branch}{label}: {data[0]!r} (line {data[1]})")
+
+def current_token():
+    """Get the token currently being checked."""
+    if current < len(tokens):
+        return tokens[current]
+
+    if tokens:
+        return ("", "End of File", tokens[-1][2])
+
+    return ("", "End of File", 1)
+
+
+def next_token():
+    """Consume the current token and move forward."""
+    global current
+
+    token = current_token()
+    if token[1] != "End of File":
+        current += 1
+    return token
+
+
+def is_token(*words, kinds=(), offset=0):
+    """Check a token without consuming it."""
+    token_index = current + offset
+    if token_index >= len(tokens):
+        return "End of File" in kinds
+
+    lexeme, token_type, line = tokens[token_index]
+    if lexeme in words and token_type != "YARN Literal":
+        return True
+    return token_type in kinds
+
+
+def found_token():
+    lexeme, token_type, line = current_token()
+
+    if token_type == "Line Break":
+        return "the end of the line"
+    if token_type == "End of File":
+        return "the end of the file"
+    return "'" + lexeme + "'"
+
+
+def syntax_error(message, token=None):
+    if token is None:
+        token = current_token()
+    raise ParseError("Line " + str(token[2]) + ": " + message)
+
+
+def expect(*words):
+    if not is_token(*words):
+        expected = " or ".join("'" + word + "'" for word in words)
+        syntax_error("expected " + expected + " but found " + found_token())
+    return next_token()
+
+
+def read_name(description, token_type=None):
+    allowed = NAME_TYPES if token_type is None else (token_type,)
+
+    if not is_token(kinds=allowed):
+        syntax_error("expected " + description + " but found " + found_token())
+
+    return next_token()[0]
+
+
+def skip_line_breaks():
+    while is_token(kinds=("Line Break",)):
+        next_token()
+
+
+def end_line():
+    if is_token(kinds=("End of File",)):
         return
-    print(f"{prefix}{branch}{label}" if prefix else label)
-    child_prefix = (prefix + ("    " if last else "│   ")) if prefix else " "
-    for i, child in enumerate(data):
-        print_tree(child, child_prefix, i == len(data) - 1)
 
-# helper functions
+    if not is_token(kinds=("Line Break",)):
+        syntax_error("expected the end of the line but found " + found_token())
 
-def match(step):
-    global pos, furthest, expected
+    skip_line_breaks()
 
-    if callable(step): return step() # if callable/grammar rule sequence function (ex. var_dec_block, etc...), call (recursion)
-    names = step if isinstance(step, tuple) else (step,) # normalize to tuple
 
-    lex, kind, line = tokens[pos] # take current token
-    if lex in names or kind in names: # if match
-        pos += 1
-        return [kind, (lex, line)] # return terminal node
+def parse_program():
+    line = current_token()[2]
+    functions = []
+    declarations = []
 
-    # basic grammar error handling
-    if pos > furthest: furthest, expected = pos, set()
-    if pos == furthest: expected.update(names)
-    return None
+    skip_line_breaks()
 
-def seq(label, *steps):
-    global pos
+    # Function definitions can be placed before HAI.
+    while is_token("HOW IZ I"):
+        functions.append(parse_function())
+        skip_line_breaks()
 
-    start = pos # current position for backtracking
-    children = [] # list of child nodes
+    expect("HAI")
+    if is_token(kinds=("NUMBAR Literal",)):
+        next_token()
+    end_line()
 
-    # try to match each step in the sequence
-    for step in steps:
-        child = match(step)
+    # Variable declarations belong in the WAZZUP section.
+    if is_token("WAZZUP"):
+        next_token()
+        end_line()
 
-        # if matching fails, backtrack by reverting to last position
-        if child is None:
-            pos = start
-            return None
-        # else add child to children
-        children.append(child)
+        while is_token("I HAS A"):
+            declaration_line = next_token()[2]
+            variable = read_name("a variable name")
+            value = None
 
-    return [label, children] # return nonterminal node
+            if is_token("ITZ"):
+                next_token()
+                value = parse_expression(top_level=True)
 
-# grammar rule functions 
+            declarations.append(("declare", declaration_line, variable, value))
 
-# program structure
+            # Record the variable. A literal gives it a first value, anything else stays NOOB.
+            if symbols is not None:
+                first_value = None
+                if value is not None and value[0] == "literal":
+                    first_value = value[3]
+                symbols.declare(variable, first_value)
 
-def program():
-    head = ("<program>", outer, "HAI", version, linebreak, body, "KTHXBYE")
-    return seq(*head, linebreak, outer) or seq(*head)
+            end_line()
 
-def version():
-    return seq("<version>", ("NUMBR Literal", "NUMBAR Literal")) or seq("<version>")
+        expect("BUHBYE")
+        end_line()
 
-def outer():
-    return seq("<outer>", func_def, outer) or seq("<outer>", line_end, outer) or seq("<outer>")
+    statements = parse_block("KTHXBYE")
+    expect("KTHXBYE")
+    end_line()
 
-def body():
-    return seq("<body>", var_dec_block, statement_list)
+    # Function definitions can also follow KTHXBYE.
+    skip_line_breaks()
+    while is_token("HOW IZ I"):
+        functions.append(parse_function())
+        skip_line_breaks()
 
-def statement_list():
-    return seq("<statement_list>", statement, linebreak, statement_list) or seq("<statement_list>")
+    if not is_token(kinds=("End of File",)):
+        syntax_error("unexpected " + found_token() + " after KTHXBYE")
 
-# line break
+    return ("program", line, functions, declarations, statements)
 
-def linebreak():
-    return seq("<linebreak>", line_end, linebreak) or seq("<linebreak>", line_end)
 
-def line_end():
-    return seq("<line_end>", "Line Break")
+def parse_block(*stop_words):
+    statements = []
 
-# variable declaration block
+    while not is_token(*stop_words):
+        if is_token(kinds=("End of File",)):
+            expected = " or ".join("'" + word + "'" for word in stop_words)
+            syntax_error("expected " + expected + " but reached the end of the file")
 
-def var_dec_block():
-    return seq("<var_dec_block>", "WAZZUP", linebreak, var_dec_list, "BUHBYE", linebreak) or seq("<var_dec_block>")
+        statements.append(parse_statement())
+        end_line()
 
-def var_dec_list():
-    return seq("<var_dec_list>", var_dec, linebreak, var_dec_list) or seq("<var_dec_list>")
+    return statements
 
-def var_dec():
-    return seq("<var_dec>", "I HAS A", "Variable Identifier", "ITZ", top_expr) or seq("<var_dec>", "I HAS A", "Variable Identifier")
 
-# statements
+def parse_statement():
+    lexeme, token_type, line = current_token()
 
-def statement():
-    return (seq("<statement>", output) or seq("<statement>", input_) or seq("<statement>", assignment) or seq("<statement>", typecast)
-        or seq("<statement>", if_block) or seq("<statement>", switch_block) or seq("<statement>", loop_block)
-        or seq("<statement>", break_) or seq("<statement>", return_) or seq("<statement>", top_expr)
+    if is_token("VISIBLE"):
+        next_token()
+        values = [parse_expression(top_level=True)]
+
+        while is_token(kinds=("Output Separator",)):
+            next_token()
+            values.append(parse_expression(top_level=True))
+
+        suppress_newline = is_token(kinds=("Newline Suppressor",))
+        if suppress_newline:
+            next_token()
+
+        return ("visible", line, values, suppress_newline)
+
+    if is_token("GIMMEH"):
+        next_token()
+        return ("gimmeh", line, read_name("a variable name"))
+
+    if is_token("GTFO"):
+        next_token()
+        return ("break", line)
+
+    if is_token("FOUND YR"):
+        next_token()
+        return ("return", line, parse_expression(top_level=True))
+
+    if is_token("O RLY?"):
+        return parse_if()
+
+    if is_token("WTF?"):
+        return parse_switch()
+
+    if is_token("IM IN YR"):
+        return parse_loop()
+
+    if is_token("I HAS A"):
+        syntax_error(
+            "variables must be declared inside WAZZUP ... BUHBYE, before the statements"
+        )
+
+    if is_token("HOW IZ I"):
+        syntax_error("functions must be defined before HAI or after KTHXBYE")
+
+    if is_token(kinds=NAME_TYPES):
+        if is_token("R", offset=1):
+            variable = next_token()[0]
+            next_token()
+            return ("assign", line, variable, parse_expression(top_level=True))
+
+        if is_token("IS NOW A", offset=1):
+            variable = next_token()[0]
+            next_token()
+            value_type = read_name(
+                "a type (NUMBR, NUMBAR, YARN, TROOF)", "TYPE Literal"
+            )
+            return ("recast", line, variable, value_type)
+
+    return ("expr", line, parse_expression(top_level=True))
+
+
+def parse_if():
+    line = next_token()[2]
+    end_line()
+    expect("YA RLY")
+    end_line()
+
+    yes_block = parse_block("MEBBE", "NO WAI", "OIC")
+    else_if_blocks = []
+
+    while is_token("MEBBE"):
+        next_token()
+        condition = parse_expression(top_level=True)
+        end_line()
+        body = parse_block("MEBBE", "NO WAI", "OIC")
+        else_if_blocks.append(("mebbe", condition, body))
+
+    no_block = None
+    if is_token("NO WAI"):
+        next_token()
+        end_line()
+        no_block = parse_block("OIC")
+
+    expect("OIC")
+    return ("if", line, yes_block, else_if_blocks, no_block)
+
+
+def parse_switch():
+    line = next_token()[2]
+    end_line()
+    expect("OMG")
+    cases = []
+
+    while True:
+        case_value = parse_literal()
+        end_line()
+        case_body = parse_block("OMG", "OMGWTF", "OIC")
+        cases.append(("case", case_value, case_body))
+
+        if not is_token("OMG"):
+            break
+        next_token()
+
+    default_block = None
+    if is_token("OMGWTF"):
+        next_token()
+        end_line()
+        default_block = parse_block("OIC")
+
+    expect("OIC")
+    return ("switch", line, cases, default_block)
+
+
+def parse_loop():
+    line = next_token()[2]
+    loop_name = read_name("a loop name")
+
+    operation = None
+    variable = None
+    condition_kind = None
+    condition = None
+
+    if is_token("UPPIN", "NERFIN"):
+        operation = next_token()[0]
+        expect("YR")
+        variable = read_name("a variable name")
+
+        if is_token("TIL", "WILE"):
+            condition_kind = next_token()[0]
+            condition = parse_expression(top_level=True)
+
+    end_line()
+    body = parse_block("IM OUTTA YR")
+    expect("IM OUTTA YR")
+
+    closing_token = current_token()
+    closing_name = read_name("the loop name")
+    if closing_name != loop_name:
+        syntax_error(
+            "loop '" + loop_name + "' is closed with a different name '" +
+            closing_name + "'",
+            closing_token
+        )
+
+    return (
+        "loop", line, loop_name, operation, variable,
+        condition_kind, condition, body
     )
 
-def output():
-    return seq("<output>", "VISIBLE", top_expr, output_list, output_end)
 
-def output_list():
-    return seq("<output_list>", "+", top_expr, output_list) or seq("<output_list>")
+def parse_function():
+    line = next_token()[2]
+    name = read_name("a function name")
+    parameters = []
 
-def output_end():
-    return seq("<output_end>", "!") or seq("<output_end>")
+    if is_token("YR"):
+        next_token()
+        parameters.append(read_name("a parameter name"))
 
-def input_():
-    return seq("<input>", "GIMMEH", "Variable Identifier")
+        while is_token("AN"):
+            next_token()
+            expect("YR")
+            parameters.append(read_name("a parameter name"))
 
-def assignment():
-    return seq("<assignment>", "Variable Identifier", "R", top_expr)
+    end_line()
+    body = parse_block("IF U SAY SO")
+    expect("IF U SAY SO")
+    end_line()
 
-def typecast():
-    return seq("<typecast>", "Variable Identifier", "IS NOW A", "TYPE Literal")
+    return ("function", line, name, parameters, body)
 
-def break_():
-    return seq("<break>", "GTFO")
 
-def return_():
-    return seq("<return>", "FOUND YR", top_expr)
+def parse_expression(top_level=False):
+    lexeme, token_type, line = current_token()
 
-# if statement block
+    if top_level and is_token("SMOOSH"):
+        next_token()
+        values = [parse_expression()]
 
-def if_block():
-    return seq("<if_block>", "O RLY?", linebreak, "YA RLY", linebreak, statement_list, elif_block, else_block, "OIC")
+        while is_token("AN"):
+            next_token()
+            values.append(parse_expression())
 
-def elif_block():
-    return seq("<elif_block>", "MEBBE", top_expr, linebreak, statement_list, elif_block) or seq("<elif_block>")
+        return ("nary", line, "SMOOSH", values)
 
-def else_block():
-    return seq("<else_block>", "NO WAI", linebreak, statement_list) or seq("<else_block>")
+    if top_level and is_token("ALL OF", "ANY OF"):
+        next_token()
+        values = [parse_expression()]
 
-# switch statement block
+        while is_token("AN"):
+            next_token()
+            values.append(parse_expression())
 
-def switch_block():
-    return seq("<switch_block>", "WTF?", linebreak, case_list, default_block, "OIC")
+        expect("MKAY")
+        return ("nary", line, lexeme, values)
 
-def case_list():
-    return seq("<case_list>", case_item, case_list) or seq("<case_list>", case_item)
+    if is_token(kinds=NAME_TYPES):
+        next_token()
+        return ("var", line, lexeme)
 
-def case_item():
-    return seq("<case_item>", "OMG", literal, linebreak, statement_list)
+    if is_token(kinds=(
+        "NUMBR Literal", "NUMBAR Literal", "TROOF Literal", "String Delimiter"
+    )):
+        return parse_literal()
 
-def default_block():
-    return seq("<default_block>", "OMGWTF", linebreak, statement_list) or seq("<default_block>")
+    if is_token(*ARITHMETIC, *BOOLEAN, *COMPARISON):
+        next_token()
+        left = parse_expression()
+        expect("AN")
+        right = parse_expression()
+        return ("binary", line, lexeme, left, right)
 
-# loop statement block
+    if is_token("NOT"):
+        next_token()
+        return ("unary", line, "NOT", parse_expression())
 
-def loop_block():
-    return seq("<loop_block>", "IM IN YR", "Loop Identifier", loop_upd, linebreak, statement_list, "IM OUTTA YR", "Loop Identifier")
+    if is_token("MAEK"):
+        next_token()
+        value = parse_expression()
 
-def loop_upd():
-    return seq("<loop_upd>", "Loop Operation", "YR", "Variable Identifier", loop_cond) or seq("<loop_upd>")
+        if is_token("A"):
+            next_token()
 
-def loop_cond():
-    return seq("<loop_cond>", "Loop Condition", top_expr) or seq("<loop_cond>")
+        value_type = read_name(
+            "a type (NUMBR, NUMBAR, YARN, TROOF)", "TYPE Literal"
+        )
+        return ("cast", line, value, value_type)
 
-# functions
+    if is_token("I IZ"):
+        next_token()
+        function_name = read_name("a function name")
+        arguments = []
 
-def func_def():
-    return seq("<func_def>", "HOW IZ I", "Function Identifier", func_params, linebreak, statement_list, "IF U SAY SO", linebreak)
+        if is_token("YR"):
+            next_token()
+            arguments.append(parse_expression())
 
-def func_params():
-    return seq("<func_params>", "YR", "Variable Identifier", param_list) or seq("<func_params>")
+            while is_token("AN"):
+                next_token()
+                expect("YR")
+                arguments.append(parse_expression())
 
-def param_list():
-    return seq("<param_list>", "AN", "YR", "Variable Identifier", param_list) or seq("<param_list>")
+        expect("MKAY")
+        return ("call", line, function_name, arguments)
 
-def func_call():
-    return seq("<func_call>", "I IZ", "Function Identifier", call_args, "MKAY")
+    if is_token(*LIST_OPERATIONS):
+        syntax_error(lexeme + " cannot be used inside another expression")
 
-def call_args():
-    return seq("<call_args>", "YR", expr, arg_list) or seq("<call_args>")
+    syntax_error(
+        "expected a value or an operation but found " + found_token()
+    )
 
-def arg_list():
-    return seq("<arg_list>", "AN", "YR", expr, arg_list) or seq("<arg_list>")
 
-# operations
+def parse_literal():
+    lexeme, token_type, line = current_token()
 
-def top_expr():
-    return seq("<top_expr>", expr) or seq("<top_expr>", concat_expr) or seq("<top_expr>", all_expr) or seq("<top_expr>", any_expr)
+    if token_type == "NUMBR Literal":
+        next_token()
+        return ("literal", line, "NUMBR", int(lexeme))
 
-def expr():
-    return (seq("<expr>", "Variable Identifier") or seq("<expr>", literal) or seq("<expr>", arithmetic_expr) or seq("<expr>", boolean_expr) 
-            or seq("<expr>", comparison_expr) or seq("<expr>", cast_expr) or seq("<expr>", func_call))
+    if token_type == "NUMBAR Literal":
+        next_token()
+        return ("literal", line, "NUMBAR", float(lexeme))
 
-def literal():
-    return seq("<literal>", ("NUMBR Literal", "NUMBAR Literal", "TROOF Literal")) or seq("<literal>", "String Delimiter", "YARN Literal", "String Delimiter")
+    if token_type == "TROOF Literal":
+        next_token()
+        return ("literal", line, "TROOF", lexeme == "WIN")
 
-def arithmetic_expr():
-    return seq("<arithmetic_expr>", "Arithmetic Operation", expr, "AN", expr)
+    if token_type == "String Delimiter":
+        next_token()
 
-def boolean_expr():
-    return seq("<boolean_expr>", "NOT", expr) or seq("<boolean_expr>", ("BOTH OF", "EITHER OF", "WON OF"), expr, "AN", expr)
+        if not is_token(kinds=("YARN Literal",)):
+            syntax_error("expected the text of a string")
 
-def comparison_expr():
-    return seq("<comparison_expr>", "Comparison Operation", expr, "AN", expr)
+        value = next_token()[0]
 
-def concat_expr():
-    return seq("<concat_expr>", "SMOOSH", expr_list)
+        if not is_token(kinds=("String Delimiter",)):
+            syntax_error("string is missing its closing quote")
 
-def cast_expr():
-    return seq("<cast_expr>", "MAEK", expr, "A", "TYPE Literal") or seq("<cast_expr>", "MAEK", expr, "TYPE Literal")
+        next_token()
+        return ("literal", line, "YARN", value)
 
-def all_expr():
-    return seq("<all_expr>", "ALL OF", expr_list, "MKAY")
+    syntax_error(
+        "expected a number, string or WIN/FAIL but found " + found_token()
+    )
 
-def any_expr():
-    return seq("<any_expr>", "ANY OF", expr_list, "MKAY")
 
-def expr_list():
-    return seq("<expr_list>", expr, "AN", expr_list) or seq("<expr_list>", expr)
+def parse(source_code, symbol_table=None):
+    """Run the lexer, then check the resulting tokens against the grammar.
+
+    If a SymbolTable is given, it is filled with the variables from WAZZUP ... BUHBYE.
+    """
+    global tokens, current, symbols
+
+    tokens = []
+    current = 0
+    symbols = symbol_table
+    if symbols is not None:
+        symbols.clear()
+    list(lexer(source_code, tokens))
+    return parse_program()
+
 
 if __name__ == "__main__":
-    file_name = sys.argv[1] if len(sys.argv) > 1 else "sample.lol"
-    with open(file_name, "r", encoding="utf-8") as file:
-        code = file.read()
+    import sys
+    from symbol_table import SymbolTable
 
-    sys.stdout = open("output.txt", "w", encoding="utf-8")
+    file_name = sys.argv[1] if len(sys.argv) > 1 else "sample.lol"
+
+    with open(file_name, "r", encoding="utf-8") as source_file:
+        source_code = source_file.read()
 
     try:
-        lexemes = []
-        for _ in lexer(code, lexemes): pass
-        tree = parse(lexemes)
-        print_tree(tree)
-    except (LexError, SyntaxError) as error:
-        print(f"{type(error).__name__}: {error}")
+        table = SymbolTable()
+        tree = parse(source_code, table)
+        print("Syntax OK")
+
+        print("\nSymbol table:")
+        for row in table.get_all_variables_for_gui():
+            print("  " + row["identifier"].ljust(10) + row["type"].ljust(8) + row["value"])
+    except (LexError, ParseError) as error:
+        print("Error:", error)
