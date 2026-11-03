@@ -1,8 +1,22 @@
 import asyncio
+import contextlib
+import io
+
 from nicegui import ui
 from lexer import lexer, LexError
+from parser import parse, ParseError, print_tree
+from symbol_table import SymbolTable
 
 lexemes = []
+symbol_table = SymbolTable()
+state = {'running': False}   # stops a second click from starting a run while one is still going
+
+LEX_BATCH = 25     # tokens added to the Lexemes table at a time
+LEX_DELAY = 0.01   # pause between batches (the visual effect), was 0.05 PER TOKEN
+
+# the Parse Tree needs a monospace font or the branch lines (|-- and +--) do not line up
+MONO_STYLE = ('white-space: pre; font-size: 0.8rem; line-height: 1.35; '
+              'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;')
 
 
 # Load uploaded file into the code editor
@@ -12,27 +26,87 @@ async def handle_upload(e):
         ui.notify('Please select a .txt or .lol file', type='warning')
         return
     try:
-        file_content = await e.file.text()
+        file_content = (await e.file.text()).replace('\r\n', '\n')  # .lol files from Windows use CRLF
         editor.set_value(file_content)
         ui.notify(f'Loaded: {name}', type='positive')
     except Exception as ex:
         ui.notify(f'Error reading file: {ex}', type='negative')
 
 
-# Run lexer and populate lexeme table one row at a time
-async def run_lexer():
-    lexemes.clear()
-    lexeme_table.rows.clear()
+# Update the Symbol Table UI
+def update_symbol_table_ui():
+    symbol_table_ui.rows = symbol_table.get_all_variables_for_gui()
+    symbol_table_ui.update()
+
+
+# Add rows to the Lexemes table
+def add_lexeme_rows(rows):
+    lexeme_table.rows.extend(rows)
     lexeme_table.update()
 
-    try:
-        for row_id, (lex, kind, line) in enumerate(lexer(editor.value, lexemes)):
-            lexeme_table.add_row({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
-            await asyncio.sleep(0.1)
 
-        ui.notify(f'{len(lexeme_table.rows)} lexemes found', type='positive')
+# Turn the parse tree into the text shown in the Parse Tree tab
+def tree_to_text(tree):
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):  # print_tree prints, so capture it
+        print_tree(tree)
+    return buffer.getvalue()
+
+
+# Run lexer, parser, and update all tabs
+async def run_interpreter():
+    if state['running']:
+        ui.notify('Still running, please wait', type='warning')
+        return
+    state['running'] = True
+
+    # 1. Clear previous state
+    lexemes.clear()
+    lexeme_table.rows = []
+    lexeme_table.update()
+    symbol_table.clear()
+    update_symbol_table_ui()
+    parse_tree_output.set_text('')
+
+    try:
+        # 2. Lex the code. The ONLY input is what is in the code editor right now
+        #    (a loaded file was copied into the editor by handle_upload, and any edits are included)
+        source = editor.value
+        batch = []
+        try:
+            for row_id, (lex, kind, line) in enumerate(lexer(source, lexemes)):
+                batch.append({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
+                if len(batch) >= LEX_BATCH:
+                    add_lexeme_rows(batch)
+                    batch = []
+                    await asyncio.sleep(LEX_DELAY)  # visual delay
+        finally:
+            if batch:  # also show the tokens found before a lexical error
+                add_lexeme_rows(batch)
+
+        # 3. Parse the code. On success the parser fills the symbol table (WAZZUP block variables)
+        tree = parse(lexemes, symbol_table)
+
+        # 4. Parse Tree tab
+        parse_tree_output.set_text(tree_to_text(tree))
+        ui.notify('Parsed successfully', type='positive')
+
     except LexError as err:
+        parse_tree_output.set_text(f'Lexical error: {err}')
         ui.notify(f'Lexical error: {err}', type='negative')
+    except ParseError as err:
+        # the parser only fills the symbol table when the WHOLE program parses, so on a syntax error
+        # fall back to the declarations found in the tokens (values stay NOOB until the code is fixed)
+        symbol_table.load_from_lexemes(lexemes)
+        parse_tree_output.set_text(f'Parse error: {err}')
+        ui.notify(f'Parse error: {err}', type='negative')
+    except Exception as err:
+        parse_tree_output.set_text(f'Unexpected error: {err}')
+        ui.notify(f'Unexpected error: {err}', type='negative')
+    finally:
+        # 5. Symbol Table tab (always refreshed, even after an error)
+        update_symbol_table_ui()
+        state['running'] = False
 
 
 uploader = ui.upload(auto_upload=True, on_upload=handle_upload).classes('hidden')
@@ -61,7 +135,7 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                                         ui.button(icon='folder_open',
                                                   on_click=lambda: uploader.run_method('pickFiles')).props(
                                             'flat round color=white size=sm')
-                                        ui.button(icon='play_arrow', on_click=run_lexer).props(
+                                        ui.button(icon='play_arrow', on_click=run_interpreter).props(
                                             'flat round color=white size=sm')
                                 with ui.row().classes('w-full flex-grow overflow-hidden min-h-0'):
                                     editor = ui.codemirror('HAI 1.2\nVISIBLE "Hello"\nKTHXBYE',
@@ -81,6 +155,7 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
 
                                 with ui.tab_panels(tables_tabs, value='Lexemes').classes(
                                         'w-full flex-grow overflow-hidden bg-white min-h-0'):
+                                    # Lexemes Panel
                                     with ui.tab_panel('Lexemes').classes('p-0 w-full h-full'):
                                         with ui.column().classes('w-full h-full overflow-y-auto'):
                                             lexeme_table = ui.table(
@@ -94,9 +169,19 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                                                 rows=[], row_key='id',
                                             ).props('dense flat').classes('w-full')
 
+                                    # Symbols Panel
                                     with ui.tab_panel('Symbols').classes('p-0 w-full h-full'):
                                         with ui.column().classes('w-full h-full overflow-y-auto p-2'):
-                                            ui.label("Milestone 2").classes('text-black')
+                                            symbol_table_ui = ui.table(
+                                                columns=[
+                                                    {'name': 'identifier', 'label': 'Identifier', 'field': 'identifier',
+                                                     'align': 'left'},
+                                                    {'name': 'type', 'label': 'Type', 'field': 'type', 'align': 'left'},
+                                                    {'name': 'value', 'label': 'Value', 'field': 'value',
+                                                     'align': 'left'},
+                                                ],
+                                                rows=[], row_key='identifier',
+                                            ).props('dense flat').classes('w-full')
 
         # Right column: Output and Tree
         with main_splitter.after:
@@ -110,15 +195,18 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                             ui.tab('Parse Tree').classes('text-white')
                         ui.icon('output').classes('mr-2')
 
-                    # Tab content
-                    with ui.tab_panels(output_tabs, value='Console').classes(
+                    # Tab contents
+                    with ui.tab_panels(output_tabs, value='Parse Tree').classes(
                             'w-full flex-grow overflow-hidden bg-white min-h-0'):
+                        # Console Panel
                         with ui.tab_panel('Console').classes('p-0 w-full h-full'):
                             with ui.column().classes('w-full h-full overflow-y-auto p-2'):
                                 ui.label('Output will appear here...')
 
+                        # Parse Tree Panel
                         with ui.tab_panel('Parse Tree').classes('p-0 w-full h-full'):
-                            with ui.column().classes('w-full h-full overflow-y-auto p-2'):
-                                ui.label('Parse tree will appear here...')
+                            with ui.column().classes('w-full h-full overflow-auto p-2 bg-slate-50'):
+                                # a plain label with a monospace font keeps the tree exactly as printed
+                                parse_tree_output = ui.label('').style(MONO_STYLE)
 
 ui.run()
