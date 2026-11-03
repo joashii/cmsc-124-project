@@ -5,7 +5,7 @@ from lexer import lexer, LexError
 lexemes = []
 
 
-# --- Placeholder backend functions ---
+# Load uploaded file into the code editor
 async def handle_upload(e):
     name = e.file.name
     if not name.endswith(('.txt', '.lol')):
@@ -19,18 +19,16 @@ async def handle_upload(e):
         ui.notify(f'Error reading file: {ex}', type='negative')
 
 
-# Run the lexer on the current editor contents and populate the lexeme table
+# Run lexer and populate lexeme table one row at a time
 async def run_lexer():
-    # Clear previous data
     lexemes.clear()
     lexeme_table.rows.clear()
     lexeme_table.update()
 
     try:
-        # The teammate's updated lexer() signature appends to the 'lexemes' list
         for row_id, (lex, kind, line) in enumerate(lexer(editor.value, lexemes)):
             lexeme_table.add_row({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
-            await asyncio.sleep(0.1)  # for visualization of identifying lexeme one at a time
+            await asyncio.sleep(0.1)
 
         ui.notify(f'{len(lexeme_table.rows)} lexemes found', type='positive')
     except LexError as err:
@@ -40,22 +38,18 @@ async def run_lexer():
 uploader = ui.upload(auto_upload=True, on_upload=handle_upload).classes('hidden')
 uploader.ignores_events_when_hidden = False
 
-# --- UI Setup ---
 with ui.header().classes('items-center justify-center'):
     ui.label('LOLCode Interpreter').classes('text-xl font-bold')
 
-# Main container fills the screen
 with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
-    # --- MAIN SPLITTER: Left Column vs Right Column ---
+    # Split screen into left and right columns
     with ui.splitter(value=50, limits=[30, 70]).classes('w-full h-full') as main_splitter:
-        # ==========================================
-        # LEFT COLUMN
-        # ==========================================
+        # Left column: Input and Tables
         with main_splitter.before:
             with ui.column().classes('w-full h-full min-w-0 pr-2'):
-                # --- NESTED SPLITTER (Horizontal): Input vs Tabs ---
+                # Split left column vertically
                 with ui.splitter(horizontal=True, value=60, limits=[20, 80]).classes('w-full h-full') as left_splitter:
-                    # 1. Input Tab Section
+                    # Code editor
                     with left_splitter.before:
                         with ui.column().classes('w-full h-full pb-2 min-h-0'):
                             with ui.column().classes(
@@ -73,12 +67,11 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                                     editor = ui.codemirror('HAI 1.2\nVISIBLE "Hello"\nKTHXBYE',
                                                            language='Text').classes('w-full h-full')
 
-                    # 2. Merged Lexemes & Symbol Table Section
+                    # Tabbed Lexemes and Symbols
                     with left_splitter.after:
                         with ui.column().classes('w-full h-full pt-2 min-h-0'):
                             with ui.column().classes(
                                     'w-full h-full border-2 border-slate-300 rounded bg-gray-50 overflow-hidden'):
-                                # --- TABBED HEADER ---
                                 with ui.row().classes(
                                         'w-full bg-slate-800 text-white p-0 items-center justify-between rounded-t'):
                                     with ui.tabs().classes('text-white') as tables_tabs:
@@ -86,10 +79,8 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                                         ui.tab('Symbols').classes('text-white')
                                     ui.icon('dataset').classes('mr-2')
 
-                                # --- TAB PANELS (Content) ---
                                 with ui.tab_panels(tables_tabs, value='Lexemes').classes(
                                         'w-full flex-grow overflow-hidden bg-white min-h-0'):
-                                    # Panel 1: Lexemes
                                     with ui.tab_panel('Lexemes').classes('p-0 w-full h-full'):
                                         with ui.column().classes('w-full h-full overflow-y-auto'):
                                             lexeme_table = ui.table(
@@ -103,40 +94,31 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                                                 rows=[], row_key='id',
                                             ).props('dense flat').classes('w-full')
 
-                                    # Panel 2: Symbols
                                     with ui.tab_panel('Symbols').classes('p-0 w-full h-full'):
                                         with ui.column().classes('w-full h-full overflow-y-auto p-2'):
                                             ui.label("Milestone 2").classes('text-black')
 
-        # ==========================================
-        # RIGHT COLUMN
-        # ==========================================
+        # Right column: Output and Tree
         with main_splitter.after:
             with ui.column().classes('w-full h-full min-w-0 pl-2'):
-                # --- NESTED SPLITTER: Console Output vs Parse Tree ---
-                with ui.splitter(horizontal=True, value=50, limits=[20, 80]).classes('w-full h-full') as right_splitter:
-                    # Row 1: Console Output
-                    with right_splitter.before:
-                        with ui.column().classes('w-full h-full pb-2 min-h-0'):
-                            with ui.column().classes(
-                                    'w-full h-full border-2 border-slate-300 rounded bg-gray-50 overflow-hidden'):
-                                with ui.row().classes(
-                                        'w-full bg-slate-800 text-white p-2 items-center justify-between rounded-t'):
-                                    ui.label('Console Output').classes('font-bold')
-                                    ui.icon('terminal')
-                                with ui.column().classes('w-full flex-grow overflow-y-auto p-2 min-h-0'):
-                                    ui.label('Output will appear here...')
+                # Single container for the tabbed output on the right
+                with ui.column().classes('w-full h-full border-2 border-slate-300 rounded bg-gray-50 overflow-hidden'):
+                    # Tab header
+                    with ui.row().classes('w-full bg-slate-800 text-white p-0 items-center justify-between rounded-t'):
+                        with ui.tabs().classes('text-white') as output_tabs:
+                            ui.tab('Console').classes('text-white')
+                            ui.tab('Parse Tree').classes('text-white')
+                        ui.icon('output').classes('mr-2')
 
-                    # Row 2: Parse Tree Output
-                    with right_splitter.after:
-                        with ui.column().classes('w-full h-full pt-2 min-h-0'):
-                            with ui.column().classes(
-                                    'w-full h-full border-2 border-slate-300 rounded bg-gray-50 overflow-hidden'):
-                                with ui.row().classes(
-                                        'w-full bg-slate-800 text-white p-2 items-center justify-between rounded-t'):
-                                    ui.label('Parse Tree Output').classes('font-bold')
-                                    ui.icon('account_tree')
-                                with ui.column().classes('w-full flex-grow overflow-y-auto p-2 min-h-0'):
-                                    ui.label('Parse tree will appear here...')
+                    # Tab content
+                    with ui.tab_panels(output_tabs, value='Console').classes(
+                            'w-full flex-grow overflow-hidden bg-white min-h-0'):
+                        with ui.tab_panel('Console').classes('p-0 w-full h-full'):
+                            with ui.column().classes('w-full h-full overflow-y-auto p-2'):
+                                ui.label('Output will appear here...')
+
+                        with ui.tab_panel('Parse Tree').classes('p-0 w-full h-full'):
+                            with ui.column().classes('w-full h-full overflow-y-auto p-2'):
+                                ui.label('Parse tree will appear here...')
 
 ui.run()
