@@ -427,10 +427,30 @@ if __name__ == "__main__":
     from symbol_table import SymbolTable
 
     file_name = sys.argv[1] if len(sys.argv) > 1 else "sample.lol"
-    with open(file_name, "r", encoding="utf-8") as file:
-        code = file.read()
 
-    sys.stdout = open("output.txt", "w", encoding="utf-8")
+    # Handle errors when opening or reading the input file.
+    try:
+        with open(file_name, "r", encoding="utf-8") as file:
+            code = file.read()
+    except FileNotFoundError:
+        print(f"Error: file '{file_name}' was not found.", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError:
+        print(f"Error: permission denied when reading '{file_name}'.", file=sys.stderr)
+        sys.exit(1)
+    except UnicodeDecodeError:
+        print(f"Error: file '{file_name}' is not a valid UTF-8 text file.", file=sys.stderr)
+        sys.exit(1)
+    except OSError as error:
+        print(f"Error reading '{file_name}': {error}", file=sys.stderr)
+        sys.exit(1)
+
+        # Handle errors when creating the output file.
+    try:
+        sys.stdout = open("output.txt", "w", encoding="utf-8")
+    except OSError as error:
+        print(f"Error creating output.txt: {error}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         lexemes = []
