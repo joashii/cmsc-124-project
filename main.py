@@ -1,5 +1,8 @@
+import asyncio
 from nicegui import ui
-from lexer import lexer, without_line_breaks, LexError
+from lexer import lexer, LexError
+
+lexemes = []
 
 
 # --- Placeholder backend functions ---
@@ -16,21 +19,22 @@ async def handle_upload(e):
         ui.notify(f'Error reading file: {ex}', type='negative')
 
 
-def run_lexer():
-    try:
-        lexemes = without_line_breaks(lexer(editor.value))
-    except LexError as err:
-        lexeme_table.rows = []
-        lexeme_table.update()
-        ui.notify(f'Lexical error: {err}', type='negative')
-        return
-
-    lexeme_table.rows = [
-        {'id': i, 'line': line, 'lexeme': lex, 'classification': kind}
-        for i, (lex, kind, line) in enumerate(lexemes)
-    ]
+# Run the lexer on the current editor contents and populate the lexeme table
+async def run_lexer():
+    # Clear previous data
+    lexemes.clear()
+    lexeme_table.rows.clear()
     lexeme_table.update()
-    ui.notify(f'{len(lexemes)} lexemes found', type='positive')
+
+    try:
+        # The teammate's updated lexer() signature appends to the 'lexemes' list
+        for row_id, (lex, kind, line) in enumerate(lexer(editor.value, lexemes)):
+            lexeme_table.add_row({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
+            await asyncio.sleep(0.1)  # for visualization of identifying lexeme one at a time
+
+        ui.notify(f'{len(lexeme_table.rows)} lexemes found', type='positive')
+    except LexError as err:
+        ui.notify(f'Lexical error: {err}', type='negative')
 
 
 uploader = ui.upload(auto_upload=True, on_upload=handle_upload).classes('hidden')
@@ -43,13 +47,11 @@ with ui.header().classes('items-center justify-center'):
 # Main container fills the screen
 with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
     # --- MAIN SPLITTER: Left Column vs Right Column ---
-    # w-full h-full ensures it takes exactly the remaining space
     with ui.splitter(value=50, limits=[30, 70]).classes('w-full h-full') as main_splitter:
         # ==========================================
         # LEFT COLUMN
         # ==========================================
         with main_splitter.before:
-            # Use padding on a wrapper instead of margin on the splitter
             with ui.column().classes('w-full h-full min-w-0 pr-2'):
                 # --- NESTED SPLITTER (Horizontal): Input vs Tabs ---
                 with ui.splitter(horizontal=True, value=60, limits=[20, 80]).classes('w-full h-full') as left_splitter:
@@ -110,7 +112,6 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
         # RIGHT COLUMN
         # ==========================================
         with main_splitter.after:
-            # Use padding on a wrapper instead of margin on the splitter
             with ui.column().classes('w-full h-full min-w-0 pl-2'):
                 # --- NESTED SPLITTER: Console Output vs Parse Tree ---
                 with ui.splitter(horizontal=True, value=50, limits=[20, 80]).classes('w-full h-full') as right_splitter:
