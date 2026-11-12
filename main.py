@@ -45,6 +45,14 @@ def add_lexeme_rows(rows):
     lexeme_table.update()
 
 
+# writes one line in the Console. 'ok' makes it green, 'error' makes it red
+CONSOLE_COLORS = {'info': 'text-slate-600', 'ok': 'text-green-700', 'error': 'text-red-600'}
+
+
+def console_log(text, kind='info'):
+    console_output.push(text, classes=CONSOLE_COLORS[kind])
+
+
 # Turn the parse tree into the text shown in the Parse Tree tab
 def tree_to_text(tree):
     buffer = io.StringIO()
@@ -67,11 +75,13 @@ async def run_interpreter():
     symbol_table.clear()
     update_symbol_table_ui()
     parse_tree_output.set_text('')
+    console_output.clear()
 
     try:
         # 2. Lex the code. The ONLY input is what is in the code editor right now
         #    (a loaded file was copied into the editor by handle_upload, and any edits are included)
         source = editor.value
+        console_log('Lexing...')
         batch = []
         try:
             for row_id, (lex, kind, line) in enumerate(lexer(source, lexemes)):
@@ -83,9 +93,14 @@ async def run_interpreter():
         finally:
             if batch:  # also show the tokens found before a lexical error
                 add_lexeme_rows(batch)
+        console_log(f'Lexing done: {len(lexeme_table.rows)} lexemes', 'ok')
 
         # 3. Parse the code. On success the parser fills the symbol table (WAZZUP block variables)
+        console_log('Parsing...')
         tree = parse(lexemes, symbol_table)
+        variables = [name for name in symbol_table.names() if name != 'IT']  # skip IT, it is always in the table
+        console_log('Parsing done: the syntax is correct', 'ok')
+        console_log('Variables: ' + (', '.join(variables) if variables else 'none'))
 
         # 4. Parse Tree tab
         parse_tree_output.set_text(tree_to_text(tree))
@@ -93,15 +108,18 @@ async def run_interpreter():
 
     except LexError as err:
         parse_tree_output.set_text(f'Lexical error: {err}')
+        console_log(f'Lexical error: {err}', 'error')
         ui.notify(f'Lexical error: {err}', type='negative')
     except ParseError as err:
         # the parser only fills the symbol table when the WHOLE program parses, so on a syntax error
         # fall back to the declarations found in the tokens (values stay NOOB until the code is fixed)
         symbol_table.load_from_lexemes(lexemes)
         parse_tree_output.set_text(f'Parse error: {err}')
+        console_log(f'Parse error: {err}', 'error')
         ui.notify(f'Parse error: {err}', type='negative')
     except Exception as err:
         parse_tree_output.set_text(f'Unexpected error: {err}')
+        console_log(f'Unexpected error: {err}', 'error')
         ui.notify(f'Unexpected error: {err}', type='negative')
     finally:
         # 5. Symbol Table tab (always refreshed, even after an error)
@@ -200,8 +218,9 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                             'w-full flex-grow overflow-hidden bg-white min-h-0'):
                         # Console Panel
                         with ui.tab_panel('Console').classes('p-0 w-full h-full'):
-                            with ui.column().classes('w-full h-full overflow-y-auto p-2'):
-                                ui.label('Output will appear here...')
+                            # the messages go here, newest at the bottom
+                            console_output = ui.log().classes('w-full h-full p-2').style(MONO_STYLE)
+                            console_output.push('Press the play button to run the code.', classes=CONSOLE_COLORS['info'])
 
                         # Parse Tree Panel
                         with ui.tab_panel('Parse Tree').classes('p-0 w-full h-full'):
