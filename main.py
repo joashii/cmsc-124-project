@@ -7,12 +7,11 @@ import threading
 from nicegui import ui
 from lexer import lexer, LexError
 from parser import parse, ParseError, print_tree
-from symbol_table import SymbolTable
+import symbol_table
 import interpreter
 from expressions import RunError, RunStopped
 
 lexemes = []
-symbol_table = SymbolTable()
 state = {'running': False,   # stops a second click from starting a run while one is still going
          'answer': None,     # waits for what the user types when the program uses GIMMEH
          'symbols_changed': False}  # the program changed a variable, the Symbols tab needs a refresh
@@ -187,11 +186,15 @@ async def run_interpreter():
                 batch.append({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
                 if len(batch) >= LEX_BATCH:
                     add_lexeme_rows(batch)
+                    symbol_table.load_from_lexemes(lexemes) # Live update symbol table matching lexer batch
+                    update_symbol_table_ui()
                     batch = []
                     await asyncio.sleep(LEX_DELAY)  # visual delay
         finally:
             if batch:  # also show the tokens found before a lexical error
                 add_lexeme_rows(batch)
+                symbol_table.load_from_lexemes(lexemes) # Live update symbol table in finally block
+                update_symbol_table_ui()
         console_log(f'Lexing done: {len(lexeme_table.rows)} lexemes', 'ok')
 
         # 3. Parse the code. On success the parser fills the symbol table (WAZZUP block variables)
@@ -346,5 +349,8 @@ with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
                             with ui.column().classes('w-full h-full overflow-auto p-2 bg-slate-50'):
                                 # a plain label with a monospace font keeps the tree exactly as printed
                                 parse_tree_output = ui.label('').style(MONO_STYLE)
+
+# Register default on_change hook outside execution cycles
+symbol_table.on_change = update_symbol_table_ui
 
 ui.run()
