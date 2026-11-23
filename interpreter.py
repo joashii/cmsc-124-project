@@ -1,3 +1,5 @@
+from symbol_table import SymbolTableError
+
 # Runs a LOLCODE program from its parse tree. Starter file: the TODO parts are not written yet.
 # main.py calls run(tree, symbol_table, output, ask)
 #   output(text, newline=True) prints in the Console, ask() waits for what the user types (GIMMEH)
@@ -96,14 +98,15 @@ def run_statement(statement):
     data = statement[1]
     
     if label == "<output>":
+        line = node_line(statement)
         value = evaluate(data[1], table, call_function)
-        text = to_yarn(value)
+        text = to_yarn(value, line)
     
         output_list = data[2]
     
         while output_list[1]:
             value = evaluate(output_list[1][1], table, call_function)
-            text += to_yarn(value)
+            text += to_yarn(value, line)
             output_list = output_list[1][2]
     
         newline = not bool(data[3][1])
@@ -117,12 +120,15 @@ def run_statement(statement):
     elif label == "<assignment>":
         name = data[0][1][0]
         value = evaluate(data[2], table, call_function)
-        table.assign(name, value)
+        try:
+            table.assign(name, value)
+        except SymbolTableError as err:
+            raise RunError(node_line(statement), str(err))
     
     elif label == "<typecast>":
         name = data[0][1][0]
         type_name = data[2][1][0]
-        value = cast(table.get(name), type_name)
+        value = cast(table.get(name), type_name, node_line(statement))
         table.assign(name, value)
     
     elif label == "<if_block>":
@@ -144,9 +150,12 @@ def run_statement(statement):
     elif label == "<top_expr>":
         value = evaluate(statement, table, call_function)
         table.set_it(value)
+
+    elif label == "<linebreak>":
+        pass
     
     else:
-        raise RunError(node_line(statement), "Unknown statement")
+        raise RunError(node_line(statement), f"Unknown statement: {label}")
 
 
 # O RLY? ... OIC
