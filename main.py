@@ -16,8 +16,8 @@ state = {'running': False,   # stops a second click from starting a run while on
          'answer': None,     # waits for what the user types when the program uses GIMMEH
          'symbols_changed': False}  # the program changed a variable, the Symbols tab needs a refresh
 
-LEX_BATCH = 25     # tokens added to the Lexemes table at a time
-LEX_DELAY = 0.01   # pause between batches (the visual effect), was 0.05 PER TOKEN
+LEX_DELAY = 0.02   # pause before each lexeme row appears
+SYM_DELAY = 0.02   # the least pause before each symbol row appears (see show_tables)
 
 # the Parse Tree needs a monospace font or the branch lines (|-- and +--) do not line up
 MONO_STYLE = ('white-space: pre; font-size: 0.8rem; line-height: 1.35; '
@@ -38,16 +38,36 @@ async def handle_upload(e):
         ui.notify(f'Error reading file: {ex}', type='negative')
 
 
-# Update the Symbol Table UI
+# Update the Symbol Table UI immediately (no animation)
 def update_symbol_table_ui():
     symbol_table_ui.rows = symbol_table.get_all_variables_for_gui()
     symbol_table_ui.update()
 
 
-# Add rows to the Lexemes table
-def add_lexeme_rows(rows):
-    lexeme_table.rows.extend(rows)
+# Show the rows of a table one at a time, waiting `delay` seconds before each one
+async def reveal_rows(table, rows, delay):
+    for row in rows:
+        await asyncio.sleep(delay)
+        table.rows.append(row)
+        table.update()
+
+
+# Fill the Lexemes table and the Symbol Table at the same time, one row at a time.
+# The symbol rows are spread over the same time the lexeme rows take, so both tables
+# start together and finish together (there are far fewer symbols than lexemes).
+async def show_tables(lex_rows, symbol_rows):
+    lexeme_table.rows = []
     lexeme_table.update()
+    symbol_table_ui.rows = []
+    symbol_table_ui.update()
+
+    lex_time = len(lex_rows) * LEX_DELAY
+    sym_delay = max(SYM_DELAY, lex_time / len(symbol_rows)) if symbol_rows else SYM_DELAY
+
+    await asyncio.gather(
+        reveal_rows(lexeme_table, lex_rows, LEX_DELAY),
+        reveal_rows(symbol_table_ui, symbol_rows, sym_delay),
+    )
 
 
 # writes one line in the Console. 'ok' makes it green, 'error' red, 'out' is what the program prints
@@ -176,11 +196,13 @@ async def run_interpreter():
     console_output.clear()
 
     try:
-        # 2. Lex the code. The ONLY input is what is in the code editor right now
+        # 2. Lex and parse first (no delay), so both tables can then be shown together.
+        #    The ONLY input is what is in the code editor right now
         #    (a loaded file was copied into the editor by handle_upload, and any edits are included)
         source = editor.value
         batch = []
         try:
+            console_log('Lexing...')
             for row_id, (lex, kind, line) in enumerate(lexer(source, lexemes)):
                 batch.append({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
                 if len(batch) >= LEX_BATCH:
@@ -234,7 +256,7 @@ async def run_interpreter():
 uploader = ui.upload(auto_upload=True, on_upload=handle_upload).classes('hidden')
 uploader.ignores_events_when_hidden = False
 
-with ui.header().classes('items-center justify-center'):
+with ui.header().classes('items-center justify-center  bg-slate-800'):
     ui.label('LOLCode Interpreter').classes('text-xl font-bold')
 
 with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
