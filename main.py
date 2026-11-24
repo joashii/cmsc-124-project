@@ -179,7 +179,6 @@ async def run_interpreter():
         # 2. Lex the code. The ONLY input is what is in the code editor right now
         #    (a loaded file was copied into the editor by handle_upload, and any edits are included)
         source = editor.value
-        console_log('Lexing...')
         batch = []
         try:
             for row_id, (lex, kind, line) in enumerate(lexer(source, lexemes)):
@@ -195,23 +194,16 @@ async def run_interpreter():
                 add_lexeme_rows(batch)
                 symbol_table.load_from_lexemes(lexemes) # Live update symbol table in finally block
                 update_symbol_table_ui()
-        console_log(f'Lexing done: {len(lexeme_table.rows)} lexemes', 'ok')
 
         # 3. Parse the code. On success the parser fills the symbol table (WAZZUP block variables)
-        console_log('Parsing...')
         tree = parse(lexemes, symbol_table)
-        variables = [name for name in symbol_table.names() if name != 'IT']  # skip IT, it is always in the table
-        console_log('Parsing done: the syntax is correct', 'ok')
-        console_log('Variables: ' + (', '.join(variables) if variables else 'none'))
 
         # 4. Parse Tree tab
         parse_tree_output.set_text(tree_to_text(tree))
         ui.notify('Parsed successfully', type='positive')
 
         # 5. Run the program. What it prints shows up in the Console tab
-        console_log('Running...')
         await run_program(tree)
-        console_log('Program finished', 'ok')
 
     except LexError as err:
         parse_tree_output.set_text(f'Lexical error: {err}')

@@ -111,6 +111,7 @@ def run_statement(statement):
     
         newline = not bool(data[3][1])
         output(text, newline)
+        table.set_it(value)
     
     elif label == "<input>":
         name = data[1][1][0]
@@ -226,9 +227,9 @@ def run_loop(loop_block):
     loop_update = data[2][1]
     statements = data[4]
 
-    operation = loop_update[0][1][0]
-    variable = loop_update[2][1][0]
-    condition_block = loop_update[3]
+    operation = loop_update[0][1][0] if loop_update else None
+    variable = loop_update[2][1][0] if loop_update else None
+    condition_block = loop_update[3] if loop_update else loop_update
 
     condition_type = None
     condition = None
@@ -257,15 +258,16 @@ def run_loop(loop_block):
             break
 
         # update the loop variable
-        value = table.get(variable)
+        if operation is not None:
+            value = table.get(variable)
 
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            raise RunError(node_line(loop_block), "Loop variable must contain a number")
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise RunError(node_line(loop_block), "Loop variable must contain a number")
 
-        if operation == "UPPIN":
-            table.assign(variable, value + 1)
-        else:
-            table.assign(variable, value - 1)
+            if operation == "UPPIN":
+                table.assign(variable, value + 1)
+            else:
+                table.assign(variable, value - 1)
 
 def get_parameters(params_node):
     names = []
