@@ -127,12 +127,13 @@ def describe_expected(names):
         texts.append("the end of the line")
     return join_words(texts)
 
-# at the end of the file: the closing keyword of the innermost block that was never closed
-def missing_closer():
+# the closing keyword of the innermost block that was never closed up to `limit`
+def missing_closer(limit=None):
     openers = {"HAI": "KTHXBYE", "WAZZUP": "BUHBYE", "HOW IZ I": "IF U SAY SO",
                "IM IN YR": "IM OUTTA YR", "O RLY?": "OIC", "WTF?": "OIC"}
     open_blocks = []
-    for lex, kind, line in tokens:
+    scan_tokens = tokens if limit is None else tokens[:limit]
+    for lex, kind, line in scan_tokens:
         if kind == "YARN Literal":
             continue
         if lex in openers:
@@ -151,12 +152,14 @@ def build_error():
         return f"Line {line}: variables must be declared inside WAZZUP ... BUHBYE, before the statements"
     if lex == "HOW IZ I" and first_in_line and "HOW IZ I" not in expected:
         return f"Line {line}: functions must be defined before HAI or after KTHXBYE"
-    if lex in ("SMOOSH", "ALL OF", "ANY OF") and "ALL OF" not in expected:
+    if lex in ("SMOOSH", "ALL OF", "ANY OF") and EXPR_START <= expected and "ALL OF" not in expected:
         return f"Line {line}: {lex} cannot be used inside another expression"
-    if kind == "EOF" and ("Line Break" in expected or "KTHXBYE" in expected):
-        closer = missing_closer()
+    if "BUHBYE" in expected and first_in_line and lex in STATEMENT_START:
+        return f"Line {line}: expected 'BUHBYE' to close WAZZUP block before {describe_found(tokens[furthest])}"
+    if kind == "EOF" or (lex == "KTHXBYE" and "KTHXBYE" not in expected):
+        closer = missing_closer(furthest)
         if closer:
-            return f"Line {line}: expected '{closer}' but reached the end of the file"
+            return f"Line {line}: expected '{closer}' before {describe_found(tokens[furthest])}"
 
     return f"Line {line}: expected {describe_expected(expected)} but found {describe_found(tokens[furthest])}"
 
@@ -242,8 +245,7 @@ def repeat(label, *steps):
 # program structure
 
 def program():
-    head = ("<program>", outer, "HAI", version, linebreak, body, "KTHXBYE")
-    return seq(*head, linebreak, outer) or seq(*head)
+    return seq("<program>", outer, "HAI", version, linebreak, body, "KTHXBYE", outer_end)
 
 def version():
     return seq("<version>", ("NUMBR Literal", "NUMBAR Literal")) or seq("<version>")
@@ -255,6 +257,9 @@ def outer():
         if item is None: break
         children.append(item)
     return ["<outer>", children]
+
+def outer_end():
+    return seq("<outer_end>", linebreak, outer) or seq("<outer_end>")
 
 def body():
     return seq("<body>", var_dec_block, statement_list)
@@ -424,7 +429,7 @@ def expr_list():
     return seq("<expr_list>", expr, "AN", expr_list) or seq("<expr_list>", expr)
 
 if __name__ == "__main__":
-    from symbol_table import SymbolTable
+    import symbol_table
 
     file_name = sys.argv[1] if len(sys.argv) > 1 else "sample.lol"
 
@@ -455,12 +460,11 @@ if __name__ == "__main__":
     try:
         lexemes = []
         for _ in lexer(code, lexemes): pass
-        table = SymbolTable()
-        tree = parse(lexemes, table)
+        tree = parse(lexemes, symbol_table)
         print_tree(tree)
 
         print("\nSymbol table:")
-        for row in table.get_all_variables_for_gui():
+        for row in symbol_table.get_all_variables_for_gui():
             print("  " + row["identifier"].ljust(10) + row["type"].ljust(8) + row["value"])
     except (LexError, ParseError) as error:
         print(f"{type(error).__name__}: {error}")

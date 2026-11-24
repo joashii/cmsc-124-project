@@ -71,8 +71,9 @@ TOKEN_PATTERN = [
     ('Output Separator', r'^\+'),
     ('Newline Suppressor', r'^!'),
 
-    # line breaks & soft line break
+    # line breaks, soft line break, line continuation
     ('Line Break', r'^[\n,]'),
+    ('Line Continuation', r'^\.\.\.'),
 
     # identifiers
     ('Identifier', r'^[A-Za-z][A-Za-z0-9_]*'),
@@ -107,6 +108,14 @@ def lexer(source, lexemes):
                     if lexemes and lexemes[-1][1] != "Line Break":
                         lexemes.append(("\\n", token, line))
                     if token_lex == "\n":
+                        line += 1
+                    break
+
+                # bonus: line continuation
+                if token == "Line Continuation":
+                    remaining = remaining.lstrip(' \t\r')
+                    if remaining.startswith('\n'):
+                        remaining = remaining[1:]
                         line += 1
                     break
 
