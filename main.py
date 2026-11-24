@@ -11,8 +11,8 @@ lexemes = []
 symbol_table = SymbolTable()
 state = {'running': False}   # stops a second click from starting a run while one is still going
 
-LEX_BATCH = 25     # tokens added to the Lexemes table at a time
-LEX_DELAY = 0.01   # pause between batches (the visual effect), was 0.05 PER TOKEN
+LEX_DELAY = 0.02   # pause before each lexeme row appears
+SYM_DELAY = 0.02   # the least pause before each symbol row appears (see show_tables)
 
 # the Parse Tree needs a monospace font or the branch lines (|-- and +--) do not line up
 MONO_STYLE = ('white-space: pre; font-size: 0.8rem; line-height: 1.35; '
@@ -33,16 +33,36 @@ async def handle_upload(e):
         ui.notify(f'Error reading file: {ex}', type='negative')
 
 
-# Update the Symbol Table UI
+# Update the Symbol Table UI immediately (no animation)
 def update_symbol_table_ui():
     symbol_table_ui.rows = symbol_table.get_all_variables_for_gui()
     symbol_table_ui.update()
 
 
-# Add rows to the Lexemes table
-def add_lexeme_rows(rows):
-    lexeme_table.rows.extend(rows)
+# Show the rows of a table one at a time, waiting `delay` seconds before each one
+async def reveal_rows(table, rows, delay):
+    for row in rows:
+        await asyncio.sleep(delay)
+        table.rows.append(row)
+        table.update()
+
+
+# Fill the Lexemes table and the Symbol Table at the same time, one row at a time.
+# The symbol rows are spread over the same time the lexeme rows take, so both tables
+# start together and finish together (there are far fewer symbols than lexemes).
+async def show_tables(lex_rows, symbol_rows):
+    lexeme_table.rows = []
     lexeme_table.update()
+    symbol_table_ui.rows = []
+    symbol_table_ui.update()
+
+    lex_time = len(lex_rows) * LEX_DELAY
+    sym_delay = max(SYM_DELAY, lex_time / len(symbol_rows)) if symbol_rows else SYM_DELAY
+
+    await asyncio.gather(
+        reveal_rows(lexeme_table, lex_rows, LEX_DELAY),
+        reveal_rows(symbol_table_ui, symbol_rows, sym_delay),
+    )
 
 
 # writes one line in the Console. 'ok' makes it green, 'error' makes it red
@@ -78,59 +98,60 @@ async def run_interpreter():
     console_output.clear()
 
     try:
-        # 2. Lex the code. The ONLY input is what is in the code editor right now
+        # 2. Lex and parse first (no delay), so both tables can then be shown together.
+        #    The ONLY input is what is in the code editor right now
         #    (a loaded file was copied into the editor by handle_upload, and any edits are included)
         source = editor.value
-        console_log('Lexing...')
-        batch = []
+        lex_rows, error, tree = [], None, None
         try:
+            console_log('Lexing...')
             for row_id, (lex, kind, line) in enumerate(lexer(source, lexemes)):
-                batch.append({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
-                if len(batch) >= LEX_BATCH:
-                    add_lexeme_rows(batch)
-                    batch = []
-                    await asyncio.sleep(LEX_DELAY)  # visual delay
-        finally:
-            if batch:  # also show the tokens found before a lexical error
-                add_lexeme_rows(batch)
-        console_log(f'Lexing done: {len(lexeme_table.rows)} lexemes', 'ok')
+                lex_rows.append({'id': row_id, 'line': line, 'lexeme': lex, 'classification': kind})
+            console_log(f'Lexing done: {len(lex_rows)} lexemes', 'ok')
 
-        # 3. Parse the code. On success the parser fills the symbol table (WAZZUP block variables)
-        console_log('Parsing...')
-        tree = parse(lexemes, symbol_table)
-        variables = [name for name in symbol_table.names() if name != 'IT']  # skip IT, it is always in the table
-        console_log('Parsing done: the syntax is correct', 'ok')
-        console_log('Variables: ' + (', '.join(variables) if variables else 'none'))
+            # On success the parser fills the symbol table (WAZZUP block variables)
+            console_log('Parsing...')
+            tree = parse(lexemes, symbol_table)
+            variables = [name for name in symbol_table.names() if name != 'IT']  # IT is always in the table
+            console_log('Parsing done: the syntax is correct', 'ok')
+            console_log('Variables: ' + (', '.join(variables) if variables else 'none'))
 
-        # 4. Parse Tree tab
-        parse_tree_output.set_text(tree_to_text(tree))
-        ui.notify('Parsed successfully', type='positive')
+        except LexError as err:
+            error = err
+            console_log(f'Lexical error: {err}', 'error')
+            parse_tree_output.set_text(f'Lexical error: {err}')
+        except ParseError as err:
+            error = err
+            # the parser only fills the symbol table when the WHOLE program parses, so on a syntax error
+            # fall back to the declarations found in the tokens (values stay NOOB until the code is fixed)
+            symbol_table.load_from_lexemes(lexemes)
+            console_log(f'Parse error: {err}', 'error')
+            parse_tree_output.set_text(f'Parse error: {err}')
 
-    except LexError as err:
-        parse_tree_output.set_text(f'Lexical error: {err}')
-        console_log(f'Lexical error: {err}', 'error')
-        ui.notify(f'Lexical error: {err}', type='negative')
-    except ParseError as err:
-        # the parser only fills the symbol table when the WHOLE program parses, so on a syntax error
-        # fall back to the declarations found in the tokens (values stay NOOB until the code is fixed)
-        symbol_table.load_from_lexemes(lexemes)
-        parse_tree_output.set_text(f'Parse error: {err}')
-        console_log(f'Parse error: {err}', 'error')
-        ui.notify(f'Parse error: {err}', type='negative')
+        if tree is not None:
+            parse_tree_output.set_text(tree_to_text(tree))
+
+        # 3. Lexemes and Symbol Table fill in together, one row at a time
+        await show_tables(lex_rows, symbol_table.get_all_variables_for_gui())
+
+        if error is None:
+            ui.notify('Parsed successfully', type='positive')
+        else:
+            kind = 'Lexical error' if isinstance(error, LexError) else 'Parse error'
+            ui.notify(f'{kind}: {error}', type='negative')
+
     except Exception as err:
         parse_tree_output.set_text(f'Unexpected error: {err}')
         console_log(f'Unexpected error: {err}', 'error')
         ui.notify(f'Unexpected error: {err}', type='negative')
     finally:
-        # 5. Symbol Table tab (always refreshed, even after an error)
-        update_symbol_table_ui()
         state['running'] = False
 
 
 uploader = ui.upload(auto_upload=True, on_upload=handle_upload).classes('hidden')
 uploader.ignores_events_when_hidden = False
 
-with ui.header().classes('items-center justify-center'):
+with ui.header().classes('items-center justify-center  bg-slate-800'):
     ui.label('LOLCode Interpreter').classes('text-xl font-bold')
 
 with ui.column().classes('w-full h-[calc(100vh-60px)] p-4 overflow-hidden'):
