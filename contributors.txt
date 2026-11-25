@@ -1,0 +1,8 @@
+LOLCODE Interpreter
+CMSC 124 ST-3L
+
+Members:
+Ivan Joas B. Managat
+Hanna Julia L. Macasarte
+Justin Lawrence D. Cruz
+Chris Daniel V. Rosales

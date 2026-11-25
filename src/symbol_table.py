@@ -137,7 +137,7 @@ def load_from_lexemes(lexemes):
 
 def from_source(source):
     """Convenience: lex a piece of code and populate the symbol table from it."""
-    from lexer import lexer  # imported here so symbol_table.py works even without lexer.py
+    from src.lexer import lexer  # imported here so symbol_table.py works even without lexer.py
 
     lexemes = []
     for _ in lexer(source, lexemes):

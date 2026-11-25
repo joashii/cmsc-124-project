@@ -1,5 +1,5 @@
 import sys
-from lexer import lexer, LexError
+from src.lexer import lexer, LexError
 
 # Error raised when the code does not follow the grammar.
 class ParseError(Exception):
@@ -429,7 +429,7 @@ def expr_list():
     return seq("<expr_list>", expr, "AN", expr_list) or seq("<expr_list>", expr)
 
 if __name__ == "__main__":
-    import symbol_table
+    import src.symbol_table as symbol_table
 
     file_name = sys.argv[1] if len(sys.argv) > 1 else "sample.lol"
 
