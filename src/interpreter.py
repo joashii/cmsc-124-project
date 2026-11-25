@@ -1,13 +1,12 @@
-from symbol_table import SymbolTableError
-
-# Runs a LOLCODE program from its parse tree. Starter file: the TODO parts are not written yet.
+# Runs a LOLCODE program from its parse tree. Starter file:
 # main.py calls run(tree, symbol_table, output, ask)
-#   output(text, newline=True) prints in the Console, ask() waits for what the user types (GIMMEH)
+# output(text, newline=True) prints in the Console, ask() waits for what the user types (GIMMEH)
 # evaluate() from expressions.py gives the value of an expression.
 # For a mistake while running, raise RunError(line, 'message')
 
 import threading
-from expressions import evaluate, to_troof, to_yarn, cast, same_value, node_line, RunError, RunStopped
+from src.symbol_table import SymbolTableError
+from src.expressions import evaluate, to_troof, to_yarn, cast, same_value, node_line, RunError, RunStopped
 
 # main.py sets this when the user presses Stop
 stop_event = threading.Event()

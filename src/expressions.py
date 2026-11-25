@@ -3,7 +3,7 @@
 
 import math
 import re
-from symbol_table import SymbolTableError
+from src.symbol_table import SymbolTableError
 
 DECIMALS = 2  # how many decimals a NUMBAR shows when it is printed or joined into a string
 
